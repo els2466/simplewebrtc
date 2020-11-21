@@ -1,18 +1,39 @@
-const express = require('express');
+const express = require('express')
+const app = express()
+const server = require('http').Server(app)
+const io = require('socket.io')(server)
+const { ExpressPeerServer } = require('peer')
+const peerServer = ExpressPeerServer(server, {
+	debug: true,
+})
+const { v4: uuidv4 } = require('uuid')
 
-const app = express();
-const port = 3000;
+app.use('/peerjs', peerServer)
+app.use(express.static('public'))
+app.set('view engine', 'ejs')
 
-// Set public folder as root
-app.use(express.static('public'));
+app.get('/', (req, res) => {
+	res.redirect(`/${uuidv4()}`)
+})
 
-// Provide access to node_modules folder from the client-side
-app.use('/scripts', express.static(`${__dirname}/node_modules/`));
+app.get('/:room', (req, res) => {
+	res.render('room', { roomId: req.params.room })
+})
 
-// Redirect all traffic to index.html
-app.use((req, res) => res.sendFile(`${__dirname}/public/index.html`));
+io.on('connection', (socket) => {
+	socket.on('join-room', (roomId, userId) => {
+		socket.join(roomId)
+		socket.to(roomId).broadcast.emit('user-connected', userId)
 
-app.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.info('listening on %d', port);
-});
+		socket.on('message', (message) => {
+			io.to(roomId).emit('createMessage', message, userId)
+		})
+		socket.on('disconnect', () => {
+			socket.to(roomId).broadcast.emit('user-disconnected', userId)
+		})
+	})
+})
+
+const PORT = process.env.PORT || 3000
+
+server.listen(PORT, () => console.log(`Listening on port ${PORT}`))
